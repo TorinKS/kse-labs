@@ -91,6 +91,7 @@ jobs:
       goos: linux
       goarch: amd64
       ref: ${{ needs.increment-version.outputs.new_tag }}
+      release-tag: ${{ needs.increment-version.outputs.new_tag }}
 
   summary:
     needs: [increment-version, build-and-release]
