@@ -76,25 +76,19 @@ jobs:
 
   build-and-release:
     needs: increment-version
+    uses: TorinKS/kse-labs-trusted-workflows/.github/workflows/go-release.yaml@main
+    with:
+      go-version: '1.21'
+      working-directory: ci-cd-security/example-service
+      binary-name: example-service
+      goos: linux
+      goarch: amd64
+      ref: ${{ needs.increment-version.outputs.new_tag }}
+
+  summary:
+    needs: [increment-version, build-and-release]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout tagged code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.increment-version.outputs.new_tag }}
-
-      - name: Build and upload release
-        uses: wangyoucao577/go-release-action@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          goos: linux
-          goarch: amd64
-          goversion: '1.21'
-          project_path: ci-cd-security/example-service
-          binary_name: example-service
-          md5sum: false
-          sha256sum: true
-
       - name: Summary
         run: |
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
