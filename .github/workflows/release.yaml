@@ -81,6 +81,16 @@ jobs:
 
           echo "Created and pushed tag: $new_tag"
 
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          new_tag="${{ steps.increment.outputs.new_tag }}"
+          gh release create "$new_tag" \
+            --title "$new_tag" \
+            --notes "Release $new_tag" \
+            --target main
+
   build-and-release:
     needs: increment-version
     uses: TorinKS/kse-labs-trusted-workflows/.github/workflows/go-release.yaml@main
