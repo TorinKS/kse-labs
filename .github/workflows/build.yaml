@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - 'ci-cd-security/example-service/**'
+  workflow_dispatch:
 
 jobs:
   build:
