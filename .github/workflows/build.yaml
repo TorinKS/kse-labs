@@ -10,6 +10,9 @@ on:
     paths:
       - 'ci-cd-security/example-service/**'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     uses: TorinKS/kse-labs-trusted-workflows/.github/workflows/go-build.yaml@main
