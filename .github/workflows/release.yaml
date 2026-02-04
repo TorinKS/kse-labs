@@ -1,19 +1,106 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version increment type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    uses: TorinKS/kse-labs-trusted-workflows/.github/workflows/go-release.yaml@main
-    with:
-      go-version: '1.21'
-      working-directory: ci-cd-security/example-service
-      binary-name: example-service
-      goos: linux
-      goarch: amd64
+  increment-version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.increment.outputs.new_tag }}
+      current_tag: ${{ steps.get_tag.outputs.current_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          git fetch --tags
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "current_tag=$latest_tag" >> $GITHUB_OUTPUT
+          echo "Latest tag: $latest_tag"
+
+      - name: Increment version
+        id: increment
+        run: |
+          current_tag="${{ steps.get_tag.outputs.current_tag }}"
+          version_type="${{ github.event.inputs.version_type }}"
+
+          # Remove 'v' prefix and split
+          version=${current_tag#v}
+          IFS='.' read -r major minor patch <<< "$version"
+
+          # Default to 0 if empty
+          major=${major:-0}
+          minor=${minor:-0}
+          patch=${patch:-0}
+
+          case $version_type in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+
+          new_tag="v${major}.${minor}.${patch}"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+          echo "New tag: $new_tag"
+
+      - name: Create and push tag
+        run: |
+          new_tag="${{ steps.increment.outputs.new_tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$new_tag" -m "Release $new_tag"
+          git push origin "$new_tag"
+
+          echo "Created and pushed tag: $new_tag"
+
+  build-and-release:
+    needs: increment-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.increment-version.outputs.new_tag }}
+
+      - name: Build and upload release
+        uses: wangyoucao577/go-release-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: linux
+          goarch: amd64
+          goversion: '1.21'
+          project_path: ci-cd-security/example-service
+          binary_name: example-service
+          md5sum: false
+          sha256sum: true
+
+      - name: Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Previous version**: ${{ needs.increment-version.outputs.current_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New version**: ${{ needs.increment-version.outputs.new_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Increment type**: ${{ github.event.inputs.version_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View Release](https://github.com/${{ github.repository }}/releases/tag/${{ needs.increment-version.outputs.new_tag }})" >> $GITHUB_STEP_SUMMARY
