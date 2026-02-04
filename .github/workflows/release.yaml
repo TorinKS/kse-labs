@@ -3,6 +3,13 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      service:
+        description: 'Service to release'
+        required: true
+        default: 'example-service'
+        type: choice
+        options:
+          - example-service
       version_type:
         description: 'Version increment type'
         required: true
@@ -79,8 +86,8 @@ jobs:
     uses: TorinKS/kse-labs-trusted-workflows/.github/workflows/go-release.yaml@main
     with:
       go-version: '1.21'
-      working-directory: ci-cd-security/example-service
-      binary-name: example-service
+      working-directory: ci-cd-security/${{ github.event.inputs.service }}
+      binary-name: ${{ github.event.inputs.service }}
       goos: linux
       goarch: amd64
       ref: ${{ needs.increment-version.outputs.new_tag }}
@@ -93,6 +100,7 @@ jobs:
         run: |
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service**: ${{ github.event.inputs.service }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Previous version**: ${{ needs.increment-version.outputs.current_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **New version**: ${{ needs.increment-version.outputs.new_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Increment type**: ${{ github.event.inputs.version_type }}" >> $GITHUB_STEP_SUMMARY
