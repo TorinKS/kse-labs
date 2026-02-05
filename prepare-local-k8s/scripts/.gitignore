@@ -1,0 +1,15 @@
+node_modules
+__pycache__
+.ipynb_checkpoints/
+*.log
+.DS_Store
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfstate.*.backup
+.terraform.lock**
+commands.txt
+.vscode/
+hosts_ip.txt
+multipass/haproxy_*.cfg
+multipass/cloud-init-*.yaml

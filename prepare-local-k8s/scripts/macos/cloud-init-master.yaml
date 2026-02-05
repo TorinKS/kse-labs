@@ -1,0 +1,104 @@
+#cloud-config
+bootcmd:
+- printf "[Resolve]\nDNS=8.8.8.8" > /etc/systemd/resolved.conf
+- [systemctl, restart, systemd-resolved]
+- sleep 10
+- curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+- echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+- sleep 10
+- curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+- echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+- curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+- echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+- chmod a+r /etc/apt/keyrings/docker.gpg
+- chmod a+r /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+users:
+  - name: root
+    ssh_authorized_keys:
+    - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCVrddHLv0iBNCeKhyx2ok3xvSVOViCSLSyF1yFB5ddgAh1BmVWrqdaDSSuMruIy+XCXhZNB2WOY59XSpffYiH5C/ui3DHRQSrSTfdlYXlSBRuJ1q5GUuwYFj6ieR/iEApZfVQwawvhqd0K+RdLyw9ZM+lRfJik5EY055XFR/tRsKsBW3BK8i7BPZB7BhltxaS7s48OhygI7eFesvYM8AGm90kLpSwCSCeRGzUcvm5iWEsMVGT8hl3fQk8Z5cK+oC4xgCfT4wXchZaWOJqSzH8dx45vyWVXJlz5qzQeSUDwSOUehabcrBTGfxKWVAx4+o7dec/MwivNoy9L0yXvYva+Zs9YJLjjwA1uj1d5SZPOecOShVzYoM0G3x/Tj/l5F3d0ICAd2NHa6/Gk7cHKixuGfL3t28KD5lp49qtpfgAU8u8ArUPTbA3wS05IkFUnfYcjttSyVn3lE0pLYteOuqqJt7FOe1mgdb4l8Pg5vJJ5tzOO/l7YiuHVClSFm8UQNPxdfyp0nUbzbsrKZiLCetMSGz0JDuQXlRcsOX5waPAN1MPDf+vHZ15mCS77sUi58kEyvJ9b3PjbwCHYzN2rA7ggxASIyIYOgCYzlQypSVg3SPvQ0Ipdpmj8hFITvGL3bFjmg9u7PLVc19hcEVRHl6DcXxa9yi/0vdwHgPiS/53zPw== k8s-local-cluster
+
+growpart:
+    mode: auto
+    devices: ["/"]
+manage_etc_hosts: localhost
+locale: "en_US.UTF-8"
+package_update: true
+package_upgrade: true
+packages:
+    # if you change kubernetes version...
+    - kubeadm=1.32.11-1.1
+    - kubelet=1.32.11-1.1
+    - kubectl=1.32.11-1.1
+    # ...also use a SUPPORTED docker version for it
+    - docker-ce
+    - apt-transport-https
+    - ntp
+    - jq
+    - make
+    - nfs-common
+write_files:
+  - path: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+      ip_vs
+      ip_vs_rr
+      ip_vs_wrr
+      ip_vs_sh
+      nf_conntrack
+  - path: /etc/sysctl.d/k8s.conf
+    content: |
+      net.ipv4.ip_forward=1
+      net.bridge.bridge-nf-call-ip6tables=1
+      net.bridge.bridge-nf-call-iptables=1
+  - path: /etc/environment
+    content: |
+      LC_ALL=en_US.UTF-8
+      LANG=en_US.UTF-8
+      KUBECONFIG=/etc/kubernetes/admin.conf
+  - path: /etc/docker/daemon.json
+    content: |
+        {
+        "exec-opts": ["native.cgroupdriver=systemd"],
+        "log-driver": "json-file",
+        "log-opts": {
+        "max-size": "100m" },
+        "storage-driver": "overlay2"
+        }
+runcmd:
+- modprobe overlay
+- modprobe br_netfilter
+- modprobe ip_vs
+- modprobe ip_vs_rr
+- modprobe ip_vs_wrr
+- modprobe ip_vs_sh
+- modprobe nf_conntrack
+- sysctl --system
+- systemctl daemon-reload
+- systemctl restart docker kubelet
+# Detect architecture and download appropriate Go version
+- |
+  ARCH=$(dpkg --print-architecture)
+  if [ "$ARCH" = "arm64" ]; then
+    wget https://go.dev/dl/go1.21.3.linux-arm64.tar.gz
+    tar -xvf go1.21.3.linux-arm64.tar.gz
+  else
+    wget https://go.dev/dl/go1.21.3.linux-amd64.tar.gz
+    tar -xvf go1.21.3.linux-amd64.tar.gz
+  fi
+- mv go /usr/local/
+- export GOPATH=/usr/local/go
+- export GOCACHE=$GOPATH/cache
+- export PATH=$GOPATH/bin:$PATH
+- git clone https://github.com/Mirantis/cri-dockerd.git cri-dockerd
+- cd cri-dockerd
+- make cri-dockerd
+- mkdir -p /usr/local/bin
+- install -o root -g root -m 0755 cri-dockerd /usr/local/bin/cri-dockerd
+- install packaging/systemd/* /etc/systemd/system
+- sed -i -e 's,/usr/bin/cri-dockerd,/usr/local/bin/cri-dockerd,' /etc/systemd/system/cri-docker.service
+- systemctl daemon-reload
+- systemctl enable --now cri-docker.socket
+- 
+- echo 192.168.64.23 > /tmp/haproxy_ip
+- touch /tmp/signal

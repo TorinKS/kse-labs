@@ -10,13 +10,12 @@ When deploying to a local Kubernetes cluster or testing against local infrastruc
 | **Self-hosted runner per repo** | Full control | Separate setup for each project |
 | **Organization-level runner** | Shared across repos | Requires creating an organization |
 
-For this project, we use **self-hosted runner** for CI (build/test) since they require local network access: deployment to local cluster
+For this project, we use **GitHub-hosted runners** for CI (build/test) and **self-hosted runner** for deployment to local cluster.
 
 ### Self-Hosted Runner Options
 
 1. **Per-repository**: Register runner to single repo (simplest, but not shared)
-2. **Organization-level**: Create a [free GitHub organization](https://github.com/organizations/plan) to share one runner across multiple repos (overhead)
-
+2. **Organization-level**: Create a [free GitHub organization](https://github.com/organizations/plan) to share one runner across multiple repos
 
 ## Architecture Diagram
 
@@ -30,6 +29,9 @@ For this project, we use **self-hosted runner** for CI (build/test) since they r
 │                                                                      │
 │  ci-cd-security/                                                     │
 │  └── example-service/        Go application source code              │
+│       ├── main.go                                                    │
+│       ├── Dockerfile                                                 │
+│       └── k8s/               Kubernetes manifests                    │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │ calls reusable workflows
                        ▼
@@ -37,12 +39,42 @@ For this project, we use **self-hosted runner** for CI (build/test) since they r
 │              kse-labs-trusted-workflows (Central Workflows)          │
 ├─────────────────────────────────────────────────────────────────────┤
 │  .github/workflows/                                                  │
-│  ├── go-ci.yaml      ──────► Build & test Go applications           │
-│  ├── go-release.yaml ──────► Build & upload release binaries        │
-│  ├── ci.yaml         ──────► Lint workflows (actionlint, zizmor)    │
-│  └── scorecard.yaml  ──────► OpenSSF security scorecard             │
+│  ├── go-ci.yaml             ──────► Build & test Go applications    │
+│  ├── go-docker-release.yaml ──────► Build binary + Docker image     │
+│  ├── ci.yaml                ──────► Lint workflows (actionlint)     │
+│  └── scorecard.yaml         ──────► OpenSSF security scorecard      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Release Flow (Optimized - Build Once)
+
+```
+┌─────────────────┐
+│ increment-version│
+│  1. Get tag     │
+│  2. Bump version│
+│  3. Create tag  │
+│  4. Create      │
+│     GitHub      │
+│     Release     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│       build-and-release             │
+│  1. go build → binary               │
+│  2. tar + sha256 → GitHub Release   │
+│  3. docker build (uses same binary) │
+│  4. docker push → ghcr.io           │
+└────────┬────────────────────────────┘
+         │
+         ▼
+┌─────────────────┐
+│    summary      │
+└─────────────────┘
+```
+
+**Key optimization**: Binary is built **once** and used for both GitHub Release and Docker image.
 
 ## Workflow Details
 
@@ -70,17 +102,9 @@ jobs:
       working-directory: ci-cd-security/example-service
 ```
 
-**What it does**:
-- Checks out code
-- Sets up Go environment
-- Runs `go build -v ./...`
-- Runs `go test -v ./...`
-
 ### 2. Release Workflow (`release.yaml`)
 
 **Trigger**: Manual dispatch with version selection
-
-**Purpose**: Create versioned releases with binaries
 
 **Inputs**:
 | Input | Description | Options |
@@ -88,24 +112,9 @@ jobs:
 | `service` | Service to release | example-service |
 | `version_type` | Semver increment | patch, minor, major |
 
-**Release Process**:
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  1. Get Latest  │────►│  2. Increment   │────►│  3. Create Tag  │
-│      Tag        │     │     Version     │     │    & Release    │
-└─────────────────┘     └─────────────────┘     └────────┬────────┘
-                                                         │
-┌─────────────────┐     ┌─────────────────┐              │
-│  5. Summary     │◄────│  4. Build &     │◄─────────────┘
-│                 │     │     Upload      │
-└─────────────────┘     └─────────────────┘
-```
-
-**Version Increment Examples**:
-- Current: `v1.0.0` + `patch` → `v1.0.1`
-- Current: `v1.0.0` + `minor` → `v1.1.0`
-- Current: `v1.0.0` + `major` → `v2.0.0`
+**Outputs**:
+- Binary: `example-service-v1.0.x-linux-amd64.tar.gz` (GitHub Release)
+- Docker: `ghcr.io/torinks/example-service:v1.0.x` (Container Registry)
 
 ### 3. Trusted Workflow: `go-ci.yaml`
 
@@ -117,13 +126,7 @@ jobs:
 | `go-version` | No | `1.21` | Go version |
 | `working-directory` | Yes | - | Path to Go code |
 
-**Steps**:
-1. Checkout code
-2. Setup Go with caching
-3. Build all packages
-4. Run all tests
-
-### 4. Trusted Workflow: `go-release.yaml`
+### 4. Trusted Workflow: `go-docker-release.yaml`
 
 **Type**: Reusable workflow (`workflow_call`)
 
@@ -132,13 +135,98 @@ jobs:
 |-------|----------|---------|-------------|
 | `go-version` | No | `1.21` | Go version |
 | `working-directory` | Yes | - | Path to Go code |
-| `binary-name` | No | `app` | Output binary name |
-| `goos` | No | `linux` | Target OS |
-| `goarch` | No | `amd64` | Target architecture |
-| `ref` | No | - | Git ref to checkout |
-| `release-tag` | Yes | - | Tag for release upload |
+| `binary-name` | Yes | - | Output binary name |
+| `image-name` | Yes | - | Docker image name |
+| `release-tag` | Yes | - | Version tag |
+| `registry` | No | `ghcr.io` | Container registry |
 
-**Uses**: `wangyoucao577/go-release-action@v1` for cross-compilation and asset upload
+## Commands Reference
+
+### CI Operations
+
+```bash
+# Run CI manually
+gh workflow run build.yaml --repo TorinKS/kse-labs
+
+# Check workflow status
+gh run list --repo TorinKS/kse-labs --limit 5
+
+# View workflow logs
+gh run view <RUN_ID> --repo TorinKS/kse-labs --log
+```
+
+### Release Operations
+
+```bash
+# Create a release (via CLI)
+gh workflow run release.yaml \
+  --repo TorinKS/kse-labs \
+  -f service=example-service \
+  -f version_type=patch
+
+# List releases
+gh release list --repo TorinKS/kse-labs
+
+# View specific release
+gh release view v1.0.5 --repo TorinKS/kse-labs
+
+# List release assets
+gh release view v1.0.5 --repo TorinKS/kse-labs --json assets --jq '.assets[].name'
+
+# Download release binary
+gh release download v1.0.5 --repo TorinKS/kse-labs --pattern "*.tar.gz"
+```
+
+### Docker Operations
+
+```bash
+# Login to GitHub Container Registry
+echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+
+# Pull image
+docker pull ghcr.io/torinks/example-service:v1.0.5
+docker pull ghcr.io/torinks/example-service:latest
+
+# List local images
+docker images ghcr.io/torinks/example-service
+
+# Run container
+docker run -p 8080:8080 ghcr.io/torinks/example-service:v1.0.5
+
+# View image in browser
+# https://github.com/TorinKS/kse-labs/pkgs/container/example-service
+```
+
+### Git Tag Operations
+
+```bash
+# List tags
+git tag -l
+
+# Create and push tag manually
+git tag -a v1.0.0 -m "Release v1.0.0"
+git push origin v1.0.0
+
+# Delete tag (local and remote)
+git tag -d v1.0.0
+git push origin --delete v1.0.0
+```
+
+## Dockerfile (Optimized)
+
+Uses pre-built binary from CI pipeline (no multi-stage build needed):
+
+```dockerfile
+FROM alpine:3.19
+RUN apk --no-cache add ca-certificates
+WORKDIR /app
+ARG BINARY_PATH=example-service
+COPY ${BINARY_PATH} /app/server
+RUN chmod +x /app/server
+EXPOSE 8080
+USER nobody
+ENTRYPOINT ["/app/server"]
+```
 
 ## Security Features
 
@@ -160,57 +248,16 @@ The trusted workflows repo runs:
 
 ```yaml
 permissions:
-  contents: write  # Only for release creation
+  contents: write   # For release creation
+  packages: write   # For Docker push
 ```
 
-### 4. Pin Action Versions
+### 4. Pinned Action Versions
 
-All actions use specific versions (not `@latest`):
 ```yaml
 uses: actions/checkout@v4
 uses: actions/setup-go@v5
-uses: wangyoucao577/go-release-action@v1
-```
-
-## Cross-Compilation
-
-Go supports native cross-compilation. The release workflow can build for any platform:
-
-| GOOS | GOARCH | Output |
-|------|--------|--------|
-| linux | amd64 | Linux x86_64 |
-| linux | arm64 | Linux ARM64 |
-| darwin | amd64 | macOS Intel |
-| darwin | arm64 | macOS Apple Silicon |
-| windows | amd64 | Windows x86_64 |
-
-**Note**: CGO is disabled for cross-compilation. Pure Go code only.
-
-## Usage
-
-### Run CI Manually
-
-```bash
-gh workflow run build.yaml --repo TorinKS/kse-labs
-```
-
-### Create a Release
-
-```bash
-# Via GitHub UI:
-# Actions → Release → Run workflow → Select service & version type
-
-# Or via CLI:
-gh workflow run release.yaml \
-  --repo TorinKS/kse-labs \
-  -f service=example-service \
-  -f version_type=patch
-```
-
-### View Releases
-
-```bash
-gh release list --repo TorinKS/kse-labs
+uses: docker/build-push-action@v5
 ```
 
 ## File Structure
@@ -224,12 +271,18 @@ kse-labs/
     └── example-service/
         ├── main.go
         ├── go.mod
-        └── go.sum
+        ├── go.sum
+        ├── Dockerfile
+        └── k8s/
+            ├── deployment.yaml
+            └── service.yaml
 
 kse-labs-trusted-workflows/
 └── .github/workflows/
     ├── go-ci.yaml              # Reusable CI workflow
-    ├── go-release.yaml         # Reusable release workflow
+    ├── go-docker-release.yaml  # Combined build + Docker workflow
+    ├── go-release.yaml         # Binary-only release (legacy)
+    ├── docker-build.yaml       # Docker-only build (standalone)
     ├── ci.yaml                 # Workflow linting
     └── scorecard.yaml          # Security scanning
 ```
@@ -237,8 +290,10 @@ kse-labs-trusted-workflows/
 ## Best Practices Implemented
 
 1. **Separation of Concerns**: Trusted workflows in dedicated repo
-2. **Semantic Versioning**: Automated version increment
+2. **Semantic Versioning**: Automated version increment (patch/minor/major)
 3. **Manual Release Control**: Developers decide when to release
-4. **Immutable Artifacts**: SHA256 checksums for binaries
-5. **Minimal Build Context**: Only necessary files included
-6. **Reproducible Builds**: Pinned Go and action versions
+4. **Build Once**: Binary built once, used for release and Docker
+5. **Immutable Artifacts**: SHA256 checksums for binaries
+6. **Container Registry**: Images pushed to ghcr.io with version tags
+7. **Reproducible Builds**: Pinned Go and action versions
+8. **Lowercase Registry**: Automatic lowercase conversion for Docker tags

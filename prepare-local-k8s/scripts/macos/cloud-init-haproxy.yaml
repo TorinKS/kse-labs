@@ -1,0 +1,21 @@
+#cloud-config
+bootcmd:
+- printf "[Resolve]\nDNS=8.8.8.8" > /etc/systemd/resolved.conf
+- [systemctl, restart, systemd-resolved]
+users:
+  - name: root
+    ssh_authorized_keys:
+    - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCVrddHLv0iBNCeKhyx2ok3xvSVOViCSLSyF1yFB5ddgAh1BmVWrqdaDSSuMruIy+XCXhZNB2WOY59XSpffYiH5C/ui3DHRQSrSTfdlYXlSBRuJ1q5GUuwYFj6ieR/iEApZfVQwawvhqd0K+RdLyw9ZM+lRfJik5EY055XFR/tRsKsBW3BK8i7BPZB7BhltxaS7s48OhygI7eFesvYM8AGm90kLpSwCSCeRGzUcvm5iWEsMVGT8hl3fQk8Z5cK+oC4xgCfT4wXchZaWOJqSzH8dx45vyWVXJlz5qzQeSUDwSOUehabcrBTGfxKWVAx4+o7dec/MwivNoy9L0yXvYva+Zs9YJLjjwA1uj1d5SZPOecOShVzYoM0G3x/Tj/l5F3d0ICAd2NHa6/Gk7cHKixuGfL3t28KD5lp49qtpfgAU8u8ArUPTbA3wS05IkFUnfYcjttSyVn3lE0pLYteOuqqJt7FOe1mgdb4l8Pg5vJJ5tzOO/l7YiuHVClSFm8UQNPxdfyp0nUbzbsrKZiLCetMSGz0JDuQXlRcsOX5waPAN1MPDf+vHZ15mCS77sUi58kEyvJ9b3PjbwCHYzN2rA7ggxASIyIYOgCYzlQypSVg3SPvQ0Ipdpmj8hFITvGL3bFjmg9u7PLVc19hcEVRHl6DcXxa9yi/0vdwHgPiS/53zPw== k8s-local-cluster
+
+growpart:
+    mode: auto
+    devices: ["/"]
+manage_etc_hosts: localhost
+locale: "en_US.UTF-8"
+package_update: true
+package_upgrade: true
+packages:
+    - haproxy
+runcmd:
+- systemctl restart haproxy
+- touch /tmp/signal
