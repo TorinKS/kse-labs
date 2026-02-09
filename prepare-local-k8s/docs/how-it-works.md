@@ -6,9 +6,11 @@ This document provides a detailed explanation of the provisioning process.
 
 The infrastructure is provisioned using:
 - **Terraform** - Infrastructure as Code (IaC) tool
-- **Multipass** - Lightweight VM manager (uses Hyper-V on Windows)
+- **Multipass** - Lightweight VM manager (uses Hyper-V on Windows, QEMU on macOS)
 - **cloud-init** - VM initialization and configuration
 - **kubeadm** - Kubernetes cluster bootstrapping
+
+> **Note on IP addresses**: This document uses Windows static IPs (`192.168.50.x`) as examples. On macOS, IPs are dynamically assigned by Multipass (typically `192.168.64.x`). Run `multipass list` to find your actual IPs.
 
 ## Provisioning Flow
 
@@ -68,9 +70,9 @@ Terraform generates cloud-init YAML files using the `templatefile()` function.
 
 ### Step 2: VM Creation
 
-VMs are created using Multipass via PowerShell scripts.
+VMs are created using Multipass via platform-specific scripts (PowerShell on Windows, Python on macOS).
 
-**multipass.ps1** handles:
+**multipass.ps1 / multipass.py** handles:
 ```powershell
 multipass launch --name <vm-name> \
   --cpus <cpu> \
@@ -80,8 +82,12 @@ multipass launch --name <vm-name> \
 ```
 
 The `data.external` resources fetch VM IP addresses using:
-```powershell
+```bash
+# Windows (PowerShell)
 multipass info <vm-name> --format json | ConvertFrom-Json
+
+# macOS (Python)
+multipass list --format=json
 ```
 
 ### Step 3: Cloud-Init Execution
@@ -205,14 +211,14 @@ kubeadm token create --print-join-command > /etc/join.json
 
 ```mermaid
 flowchart LR
-    subgraph master0["Master-0 (192.168.50.11)"]
+    subgraph master0["Master-0"]
         token["Join Token"]
         cert["Certificate Key"]
     end
 
     subgraph workers["Workers (default: 2)"]
-        w0["worker-0<br/>192.168.50.21"]
-        w1["worker-1<br/>192.168.50.22"]
+        w0["worker-0"]
+        w1["worker-1"]
     end
 
     subgraph masters["Additional Masters (HA mode)"]
@@ -316,7 +322,7 @@ scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL \
 Copy-Item ~/.kube/config-multipass ~/.kube/config
 ```
 
-The `server:` URL in the kubeconfig points to the HAProxy IP (192.168.50.10:6443).
+The `server:` URL in the kubeconfig points to the HAProxy IP (`<HAPROXY_IP>:6443`).
 
 ### Step 9: Helm Releases Installation
 

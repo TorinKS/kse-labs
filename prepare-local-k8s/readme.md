@@ -128,32 +128,41 @@ terraform apply -var="workers=2" -var="master_mem=6G"
 
 ##### What Gets Installed
 
-The cluster comes with the following pre-installed applications:
+The cluster comes with the following pre-installed applications.
+
+> **Finding your HAProxy IP**: URLs use [nip.io](https://nip.io) wildcard DNS with the HAProxy VM's IP address.
+> - **Windows**: HAProxy IP is `192.168.50.10` (static), e.g. `http://argocd.192.168.50.10.nip.io`
+> - **macOS**: HAProxy IP is dynamically assigned by Multipass. Run `multipass list` or `terraform output` to find it, e.g. `http://argocd.<HAPROXY_IP>.nip.io`
 
 | Application | Version | URL | Credentials |
 |-------------|---------|-----|-------------|
-| **ArgoCD** | 7.7.10 | http://argocd.192.168.50.10.nip.io | admin / (run: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' \| base64 -d`) |
-| **Harbor** | 1.18.1 | http://harbor.192.168.50.10.nip.io | admin / (run: `terraform output -raw harbor_admin_password`) |
-| **Dependency-Track** | 0.41.0 | http://dtrack.192.168.50.10.nip.io | admin / admin (change on first login) |
+| **ArgoCD** | 7.7.10 | http://argocd.\<HAPROXY_IP\>.nip.io | admin / (run: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' \| base64 -d`) |
+| **Harbor** | 1.18.1 | http://harbor.\<HAPROXY_IP\>.nip.io | admin / (run: `terraform output -raw harbor_admin_password`) (Windows only) |
+| **Dependency-Track** | 0.41.0 | http://dtrack.\<HAPROXY_IP\>.nip.io | admin / admin (change on first login) |
 | **Kube-Prometheus-Stack** | 80.14.0 | - | Includes Prometheus, Grafana, AlertManager |
-| **Grafana** | (bundled) | http://grafana.192.168.50.10.nip.io | admin / admin |
-| **Prometheus** | (bundled) | http://prometheus.192.168.50.10.nip.io | - |
-| **AlertManager** | (bundled) | http://alertmanager.192.168.50.10.nip.io | - |
+| **Grafana** | (bundled) | http://grafana.\<HAPROXY_IP\>.nip.io | admin / admin |
+| **Prometheus** | (bundled) | http://prometheus.\<HAPROXY_IP\>.nip.io | - |
+| **AlertManager** | (bundled) | http://alertmanager.\<HAPROXY_IP\>.nip.io | - |
 | **NGINX Ingress** | 4.12.0 | - | NodePorts: 30080 (HTTP), 30443 (HTTPS) |
 | **NFS Provisioner** | 4.0.18 | - | StorageClass: `nfs-client` (default) |
-| **PostgreSQL** | Latest | 192.168.50.10:5432 | postgres / (run: `multipass exec haproxy -- cat /root/postgres_credentials.txt`) |
+| **PostgreSQL** | Latest | \<HAPROXY_IP\>:5432 | postgres / (run: `multipass exec haproxy -- cat /root/postgres_credentials.txt`) |
 | **Weave Net CNI** | 2.8.1 | - | Pod CIDR: 10.244.0.0/16 |
 
 ##### Network Configuration
 
-The cluster uses static IPs on a dedicated Hyper-V switch (192.168.50.0/24):
+| Platform | IP Assignment | Subnet | How to find IPs |
+|----------|--------------|--------|-----------------|
+| **Windows** | Static | `192.168.50.0/24` (Hyper-V switch) | Predefined in `variables.tf` |
+| **macOS** | Dynamic (DHCP) | Assigned by Multipass (typically `192.168.64.x`) | Run `multipass list` |
 
-| VM | IP Address | Resources | Purpose |
-|----|------------|-----------|---------|
-| haproxy | 192.168.50.10 | 2 CPU, 4G RAM, 30G disk | Load balancer, NFS server, PostgreSQL |
-| master-0 | 192.168.50.11 | 2 CPU, 4G RAM, 10G disk | Kubernetes control plane |
-| worker-0 | 192.168.50.21 | 3 CPU, 3G RAM, 15G disk | Kubernetes worker node |
-| worker-1 | 192.168.50.22 | 3 CPU, 3G RAM, 15G disk | Kubernetes worker node |
+**Default VM resources (both platforms):**
+
+| VM | Resources | Purpose |
+|----|-----------|---------|
+| haproxy | 2 CPU, 4G RAM, 30G disk | Load balancer, NFS server, PostgreSQL |
+| master-0 | 2 CPU, 4G RAM, 10G disk | Kubernetes control plane |
+| worker-0 | 3 CPU, 3G RAM, 15G disk | Kubernetes worker node |
+| worker-1 | 3 CPU, 3G RAM, 15G disk | Kubernetes worker node |
 
 **Total resources:** 10 vCPUs, 14G RAM, 70G disk
 

@@ -4,23 +4,25 @@ This document describes the architecture of the local Kubernetes cluster provisi
 
 ## Overview
 
-The infrastructure creates a production-like Kubernetes cluster on your local Windows machine using Multipass VMs. The architecture supports High Availability (HA) configurations with multiple control plane nodes.
+The infrastructure creates a production-like Kubernetes cluster on your local machine using Multipass VMs. The architecture supports High Availability (HA) configurations with multiple control plane nodes.
+
+> **Note on IP addresses**: This document uses Windows static IPs (`192.168.50.x`) as examples. On macOS, IPs are dynamically assigned by Multipass (typically `192.168.64.x`). Run `multipass list` to find your actual IPs.
 
 ```mermaid
 flowchart TB
-    subgraph host["Windows Host Machine"]
-        subgraph multipass["Multipass (Hyper-V)"]
-            kubectl["kubectl :6443"] --> haproxy["HAProxy<br/>192.168.50.10"]
+    subgraph host["Host Machine"]
+        subgraph multipass["Multipass"]
+            kubectl["kubectl :6443"] --> haproxy["HAProxy"]
             browser["Browser :80/:443"] --> haproxy
 
-            haproxy -->|":6443"| master0["Master-0<br/>192.168.50.11"]
+            haproxy -->|":6443"| master0["Master-0"]
 
             haproxy -->|":80/:443"| worker0
             haproxy -->|":80/:443"| worker1
 
             subgraph workers["Worker Nodes"]
-                worker0["Worker-0<br/>192.168.50.21"]
-                worker1["Worker-1<br/>192.168.50.22"]
+                worker0["Worker-0"]
+                worker1["Worker-1"]
             end
 
             worker0 <--> weave["Weave Net CNI<br/>10.244.0.0/16"]
@@ -43,7 +45,7 @@ flowchart TB
 **Purpose**: Provides a stable endpoint for the Kubernetes API server and Ingress traffic.
 
 - **VM Name**: `haproxy`
-- **IP Address**: 192.168.50.10
+- **IP Address**: Windows: `192.168.50.10` (static), macOS: dynamically assigned
 - **Ports**:
   - 6443: Kubernetes API (TCP passthrough to masters)
   - 80: HTTP Ingress (TCP to workers:30080)
@@ -133,7 +135,7 @@ This ensures:
 **Stats Dashboard:**
 
 HAProxy provides a statistics dashboard:
-- **URL**: `http://192.168.50.10:8080/stats`
+- **URL**: `http://<HAPROXY_IP>:8080/stats`
 - **Username**: `hapuser`
 - **Password**: `password!1234`
 
@@ -230,7 +232,7 @@ Each worker node runs:
 Default configuration:
 - **Count**: 2
 - **VM Prefix**: `worker-N`
-- **IP Range**: 192.168.50.21-22 (configurable)
+- **IP Range**: Windows: `192.168.50.21+` (configurable), macOS: dynamically assigned
 
 ### 4. Container Runtime
 
@@ -254,14 +256,14 @@ The cluster comes with several pre-installed applications (deployed via Terrafor
 
 | Application | Version | Purpose | Access URL |
 |-------------|---------|---------|------------|
-| **ArgoCD** | 7.7.10 | GitOps continuous delivery | http://argocd.192.168.50.10.nip.io |
+| **ArgoCD** | 7.7.10 | GitOps continuous delivery | http://argocd.\<HAPROXY_IP\>.nip.io |
 | **Kube-Prometheus-Stack** | 80.14.0 | Monitoring suite | - |
-| **Grafana** | (bundled) | Metrics visualization | http://grafana.192.168.50.10.nip.io |
-| **Prometheus** | (bundled) | Metrics collection | http://prometheus.192.168.50.10.nip.io |
-| **AlertManager** | (bundled) | Alert management | http://alertmanager.192.168.50.10.nip.io |
+| **Grafana** | (bundled) | Metrics visualization | http://grafana.\<HAPROXY_IP\>.nip.io |
+| **Prometheus** | (bundled) | Metrics collection | http://prometheus.\<HAPROXY_IP\>.nip.io |
+| **AlertManager** | (bundled) | Alert management | http://alertmanager.\<HAPROXY_IP\>.nip.io |
 | **NGINX Ingress** | 4.12.0 | Ingress controller | NodePorts: 30080/30443 |
 | **NFS Provisioner** | 4.0.18 | Dynamic PV provisioning | StorageClass: `nfs-client` |
-| **PostgreSQL** | Latest | External database | 192.168.50.10:5432 |
+| **PostgreSQL** | Latest | External database | \<HAPROXY_IP\>:5432 |
 
 **Default Credentials:**
 - **ArgoCD**: admin / `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d`
@@ -273,7 +275,7 @@ The cluster comes with several pre-installed applications (deployed via Terrafor
 The HAProxy VM also serves as the NFS server for persistent storage:
 
 ```
-HAProxy VM (192.168.50.10)
+HAProxy VM (<HAPROXY_IP>)
 ├── HAProxy Load Balancer (:6443, :80, :443)
 ├── NFS Server (/srv/nfs/k8s-storage)
 └── PostgreSQL Database (:5432)
@@ -286,11 +288,11 @@ The NFS Subdir External Provisioner creates subdirectories for each PVC:
 
 ## VM Specifications
 
-| Component | Count | Default CPU | Default Memory | Default Disk | IP Address |
-|-----------|-------|-------------|----------------|--------------|------------|
-| HAProxy   | 1     | 2           | 4G             | 30G          | 192.168.50.10 |
-| Master    | 1     | 2           | 4G             | 10G          | 192.168.50.11 |
-| Worker    | 2     | 3           | 3G             | 15G          | 192.168.50.21-22 |
+| Component | Count | Default CPU | Default Memory | Default Disk | Windows IP | macOS IP |
+|-----------|-------|-------------|----------------|--------------|------------|----------|
+| HAProxy   | 1     | 2           | 4G             | 30G          | 192.168.50.10 | Dynamic |
+| Master    | 1     | 2           | 4G             | 10G          | 192.168.50.11 | Dynamic |
+| Worker    | 2     | 3           | 3G             | 15G          | 192.168.50.21-22 | Dynamic |
 
 **Total resources (default config):** 10 vCPUs, 14G RAM, 70G disk
 
@@ -303,18 +305,18 @@ flowchart TB
         browser["Browser"]
     end
 
-    kubectl -->|"Port 6443"| haproxy["HAProxy<br/>192.168.50.10"]
+    kubectl -->|"Port 6443"| haproxy["HAProxy"]
     browser -->|"Port 80/443"| haproxy
 
-    subgraph cluster["192.168.50.0/24 Network"]
-        haproxy -->|":6443"| master0["Master-0<br/>192.168.50.11"]
+    subgraph cluster["VM Network"]
+        haproxy -->|":6443"| master0["Master-0"]
 
         haproxy -->|":30080/:30443"| worker0
         haproxy -->|":30080/:30443"| worker1
 
         subgraph workers["Worker Nodes"]
-            worker0["Worker-0<br/>192.168.50.21"]
-            worker1["Worker-1<br/>192.168.50.22"]
+            worker0["Worker-0"]
+            worker1["Worker-1"]
         end
 
         worker0 <-->|"Weave Net<br/>10.244.0.0/16"| worker1
@@ -327,7 +329,7 @@ flowchart TB
 ```
 
 **Network Summary:**
-- **VM Network**: 192.168.50.0/24 (Hyper-V internal switch `K8sSwitch`)
+- **VM Network**: Windows: `192.168.50.0/24` (Hyper-V internal switch), macOS: dynamically assigned by Multipass
 - **Pod Network**: 10.244.0.0/16 (Weave Net CNI)
 - **Service Network**: 10.96.0.0/12 (default Kubernetes)
 

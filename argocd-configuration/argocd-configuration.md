@@ -6,9 +6,13 @@ ArgoCD is a declarative GitOps continuous delivery tool for Kubernetes. It monit
 
 ## Access ArgoCD
 
+> **Note**: Replace `<HAPROXY_IP>` with your HAProxy VM's IP address.
+> - **Windows**: `192.168.50.10` (static)
+> - **macOS**: Run `multipass list` to find the haproxy VM's IP (dynamically assigned, typically `192.168.64.x`)
+
 ### Web UI
 
-**URL**: http://argocd.192.168.50.10.nip.io/applications
+**URL**: http://argocd.\<HAPROXY_IP\>.nip.io/applications
 
 ### Credentials
 
@@ -34,7 +38,7 @@ chmod +x argocd
 sudo mv argocd /usr/local/bin/
 
 # Login to ArgoCD
-argocd login argocd.192.168.50.10.nip.io --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
+argocd login argocd.<HAPROXY_IP>.nip.io --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
 ```
 
 ## Connect Repository
