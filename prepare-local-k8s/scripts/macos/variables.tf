@@ -24,7 +24,7 @@ variable "master_mem" {
   description = "Memory assigned to master nodes"
 }
 variable "haproxy_mem" {
-  default     = "4G"
+  default     = "2G"
   type        = string
   description = "Memory assigned to HAProxy VM"
 }
